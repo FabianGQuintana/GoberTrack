@@ -1,0 +1,393 @@
+# v1.0.1 — CONGELADO (16/10/2026). Cambios solo vía Traycer + PRD (regla §13.1).
+# v1.0.1: solo aclaraciones en descripciones (formato de Evento.datos y uso de /evidencia
+# para el motivo de objeción). Sin cambios de rutas, esquemas ni tipos.
+# Contrato de la API de lectura + evidencia del backend (PRD v3 §9).
+# Fuente de verdad del estado: el contrato Soroban (interfaces/contract.md).
+openapi: 3.1.0
+info:
+  title: Obra Pública Verificable — API del backend
+  version: 1.0.1
+  description: |
+    API de solo lectura sobre el estado indexado del contrato, más la subida de evidencia.
+    El backend no firma ni paga nada.
+
+    Convenciones:
+    - Montos: enteros en la unidad mínima del token (7 decimales), serializados como **string**
+      para no perder precisión en JavaScript (i128 en el contrato). Ej.: "15000000000" = 1500.0000000.
+    - Direcciones: strkey de Stellar (G... para cuentas, C... para contratos).
+    - Hashes: SHA-256 en hexadecimal, minúsculas, 64 caracteres.
+    - Momentos: ISO 8601 en UTC, derivados del timestamp del ledger.
+    - Hitos: `indice` empieza en 0; el frontend muestra `indice + 1`.
+servers:
+  - url: http://localhost:3001
+    description: Desarrollo local (puerto SUPUESTO)
+
+# API pública sin autenticación (PRD v3 §10: el tablero no usa wallet; el backend no firma nada).
+# SUPUESTO: POST /evidencia también queda abierto en la demo.
+security: []
+
+tags:
+  - name: obras
+    description: Estado indexado de obras, hitos, eventos y alertas.
+  - name: evidencia
+    description: Subida y descarga de archivos de evidencia por hash.
+
+paths:
+  /obras:
+    get:
+      tags: [obras]
+      summary: Lista de obras indexadas
+      operationId: listarObras
+      responses:
+        "200":
+          description: Obras ordenadas por id ascendente
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Obra" }
+
+  /obras/{id}:
+    get:
+      tags: [obras]
+      summary: Una obra
+      operationId: verObra
+      parameters: [{ $ref: "#/components/parameters/ObraId" }]
+      responses:
+        "200":
+          description: Obra
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Obra" }
+        "404": { $ref: "#/components/responses/NoEncontrado" }
+
+  /obras/{id}/hitos:
+    get:
+      tags: [obras]
+      summary: Hitos de una obra, en orden
+      operationId: listarHitos
+      parameters: [{ $ref: "#/components/parameters/ObraId" }]
+      responses:
+        "200":
+          description: Hitos ordenados por índice
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Hito" }
+        "404": { $ref: "#/components/responses/NoEncontrado" }
+
+  /obras/{id}/eventos:
+    get:
+      tags: [obras]
+      summary: Línea de tiempo de eventos de la obra
+      operationId: listarEventos
+      parameters:
+        - { $ref: "#/components/parameters/ObraId" }
+        - name: desde
+          in: query
+          required: false
+          description: Devuelve solo eventos posteriores a este `id` de evento (para refresco incremental).
+          schema: { type: string }
+      responses:
+        "200":
+          description: Eventos en orden cronológico ascendente
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Evento" }
+        "404": { $ref: "#/components/responses/NoEncontrado" }
+
+  /obras/{id}/alertas:
+    get:
+      tags: [obras]
+      summary: Alertas calculadas por el backend
+      description: Devuelve `[]` hasta la Fase 4 (adendas y alertas).
+      operationId: listarAlertas
+      parameters: [{ $ref: "#/components/parameters/ObraId" }]
+      responses:
+        "200":
+          description: Alertas vigentes
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Alerta" }
+        "404": { $ref: "#/components/responses/NoEncontrado" }
+
+  /evidencia:
+    post:
+      tags: [evidencia]
+      summary: Sube un archivo de evidencia y devuelve su SHA-256
+      description: |
+        Guarda el archivo en disco local y devuelve su hash. El contratista pasa ese hash a
+        `declarar_hito`. Subir dos veces el mismo archivo devuelve el mismo hash (idempotente).
+      operationId: subirEvidencia
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [archivo]
+              properties:
+                archivo:
+                  type: string
+                  format: binary
+                  description: |
+                    Imagen JPEG/PNG o PDF, hasta 10 MB (límites SUPUESTOS). Se usa también para el
+                    documento del motivo de una objeción: su hash es el `motivo_hash` de `objetar`.
+      responses:
+        "201":
+          description: Evidencia guardada
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Evidencia" }
+        "400": { $ref: "#/components/responses/SolicitudInvalida" }
+        "413": { $ref: "#/components/responses/SolicitudInvalida" }
+        "415": { $ref: "#/components/responses/SolicitudInvalida" }
+
+  /evidencia/{sha256}:
+    get:
+      tags: [evidencia]
+      summary: Descarga un archivo de evidencia por su hash
+      description: |
+        Permite que cualquiera descargue
+        el archivo, recalcule el hash y lo compare con el registrado en la cadena.
+      operationId: descargarEvidencia
+      parameters:
+        - name: sha256
+          in: path
+          required: true
+          schema: { $ref: "#/components/schemas/Hash" }
+      responses:
+        "200":
+          description: El archivo original
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "404": { $ref: "#/components/responses/NoEncontrado" }
+
+components:
+  parameters:
+    ObraId:
+      name: id
+      in: path
+      required: true
+      description: Id de la obra en el contrato (u32, empieza en 1).
+      schema: { type: integer, minimum: 1 }
+
+  responses:
+    NoEncontrado:
+      description: No existe
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    SolicitudInvalida:
+      description: Solicitud inválida (archivo faltante, muy grande o de tipo no permitido)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Monto:
+      type: string
+      pattern: "^[0-9]+$"
+      description: Entero no negativo en la unidad mínima del token (7 decimales).
+      examples: ["15000000000"]
+
+    Direccion:
+      type: string
+      description: Strkey de Stellar.
+      examples: ["GABC...XYZ"]
+
+    Hash:
+      type: string
+      pattern: "^[0-9a-f]{64}$"
+
+    EstadoObra:
+      type: string
+      enum: [Activa, Finalizada]
+      description: Finalizada cuando todos los hitos están Pagado.
+
+    EstadoHito:
+      type: string
+      enum: [Pendiente, Evidencia, Aprobado, Objetado, Pagado]
+
+    Obra:
+      type: object
+      required:
+        - id
+        - nombre
+        - municipio
+        - contratista
+        - inspector
+        - veedor
+        - arbitro
+        - token
+        - monto_original
+        - monto_vigente
+        - fondeado
+        - pagado
+        - saldo
+        - periodo_objecion_seg
+        - estado
+        - cantidad_hitos
+        - hitos_pagados
+        - creada_en
+      properties:
+        id: { type: integer, minimum: 1 }
+        nombre: { type: string }
+        municipio: { $ref: "#/components/schemas/Direccion" }
+        contratista: { $ref: "#/components/schemas/Direccion" }
+        inspector: { $ref: "#/components/schemas/Direccion" }
+        veedor: { $ref: "#/components/schemas/Direccion" }
+        arbitro: { $ref: "#/components/schemas/Direccion" }
+        token: { $ref: "#/components/schemas/Direccion" }
+        monto_original: { $ref: "#/components/schemas/Monto" }
+        monto_vigente: { $ref: "#/components/schemas/Monto" }
+        fondeado: { $ref: "#/components/schemas/Monto" }
+        pagado: { $ref: "#/components/schemas/Monto" }
+        saldo:
+          allOf: [{ $ref: "#/components/schemas/Monto" }]
+          description: fondeado − pagado (fondos bloqueados en el contrato para esta obra).
+        periodo_objecion_seg: { type: integer, minimum: 0 }
+        estado: { $ref: "#/components/schemas/EstadoObra" }
+        cantidad_hitos: { type: integer, minimum: 1 }
+        hitos_pagados: { type: integer, minimum: 0 }
+        creada_en: { type: string, format: date-time }
+
+    Hito:
+      type: object
+      required:
+        - obra_id
+        - indice
+        - descripcion
+        - monto_original
+        - monto_vigente
+        - estado
+        - evidencia_hash
+        - momento_declaracion
+        - fin_periodo_objecion
+        - aprobo_inspector
+        - aprobo_veedor
+        - veedor_por_arbitro
+        - objecion_usada
+        - motivo_objecion_hash
+        - momento_aprobacion_completa
+        - momento_pago
+        - pagable
+      properties:
+        obra_id: { type: integer, minimum: 1 }
+        indice: { type: integer, minimum: 0 }
+        descripcion: { type: string }
+        monto_original: { $ref: "#/components/schemas/Monto" }
+        monto_vigente: { $ref: "#/components/schemas/Monto" }
+        estado: { $ref: "#/components/schemas/EstadoHito" }
+        evidencia_hash:
+          oneOf: [{ $ref: "#/components/schemas/Hash" }, { type: "null" }]
+          description: Hash de la declaración vigente; null en Pendiente.
+        momento_declaracion:
+          oneOf: [{ type: string, format: date-time }, { type: "null" }]
+        fin_periodo_objecion:
+          oneOf: [{ type: string, format: date-time }, { type: "null" }]
+          description: momento_declaracion + periodo_objecion (calculado por el backend).
+        aprobo_inspector: { type: boolean }
+        aprobo_veedor: { type: boolean }
+        veedor_por_arbitro:
+          type: boolean
+          description: true si la aprobación del veedor vino de un rechazo de objeción.
+        objecion_usada:
+          type: boolean
+          description: El veedor ya objetó en la declaración vigente.
+        motivo_objecion_hash:
+          oneOf: [{ $ref: "#/components/schemas/Hash" }, { type: "null" }]
+        momento_aprobacion_completa:
+          oneOf: [{ type: string, format: date-time }, { type: "null" }]
+        momento_pago:
+          oneOf: [{ type: string, format: date-time }, { type: "null" }]
+        pagable:
+          type: boolean
+          description: |
+            Calculado por el backend al responder: estado Aprobado, período cumplido y saldo de la
+            obra ≥ monto_vigente. Es una ayuda para la interfaz; la regla la aplica el contrato.
+
+    TipoEvento:
+      type: string
+      enum:
+        - ObraCreada
+        - ObraFondeada
+        - HitoDeclarado
+        - HitoAprobado
+        - HitoObjetado
+        - ObjecionResuelta
+        - PagoLiberado
+        - AdendaRegistrada
+      description: |
+        Nombre legible del evento. El nombre corto on-chain de cada uno está en
+        interfaces/contract.md; el backend lo traduce.
+
+    Evento:
+      type: object
+      required: [id, tipo, obra_id, hito, ledger, momento, tx_hash, datos]
+      properties:
+        id:
+          type: string
+          description: Id del evento tal como lo devuelve el RPC (único y ordenable).
+        tipo: { $ref: "#/components/schemas/TipoEvento" }
+        obra_id: { type: integer, minimum: 1 }
+        hito:
+          oneOf: [{ type: integer, minimum: 0 }, { type: "null" }]
+        ledger: { type: integer }
+        momento: { type: string, format: date-time }
+        tx_hash: { type: string, pattern: "^[0-9a-f]{64}$" }
+        datos:
+          type: object
+          additionalProperties: true
+          description: |
+            Campos de datos del evento, con los nombres de interfaces/contract.md §4.
+            Montos como string, direcciones como strkey, hashes en hex,
+            momentos (p. ej. `fin_periodo`) en ISO 8601, duraciones (`periodo_objecion`)
+            en segundos como número, y enums del contrato (`decision`, `estado`) como el
+            nombre de la variante en string ("Aceptar", "Aprobado").
+
+    Alerta:
+      type: object
+      required: [tipo, severidad, mensaje, momento]
+      properties:
+        tipo:
+          type: string
+          enum: [Sobrecosto]
+        severidad:
+          type: string
+          enum: [info, advertencia, critica]
+        mensaje: { type: string }
+        momento: { type: string, format: date-time }
+        hito:
+          oneOf: [{ type: integer, minimum: 0 }, { type: "null" }]
+
+    Evidencia:
+      type: object
+      required: [sha256, nombre_original, tamano_bytes, tipo_mime, url]
+      properties:
+        sha256: { $ref: "#/components/schemas/Hash" }
+        nombre_original: { type: string }
+        tamano_bytes: { type: integer, minimum: 1 }
+        tipo_mime: { type: string }
+        url:
+          type: string
+          description: Ruta relativa para descargarla, p. ej. /evidencia/{sha256}.
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [codigo, mensaje]
+          properties:
+            codigo:
+              type: string
+              examples: [ObraNoExiste, ArchivoFaltante, ArchivoMuyGrande, TipoNoPermitido]
+            mensaje: { type: string }

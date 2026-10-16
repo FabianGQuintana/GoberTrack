@@ -1,0 +1,15 @@
+# Rust / Soroban
+target/
+# Node
+node_modules/
+dist/
+.next/
+# Backend
+backend/data/
+*.sqlite
+*.sqlite3
+# Secretos y entorno
+.env
+.env.*
+!.env.example
+.stellar/

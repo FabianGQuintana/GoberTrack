@@ -1,0 +1,5 @@
+# Windows con host GNU (MinGW): las pruebas de integración de tests/ compilan el cdylib nativo
+# con testutils y ld exporta todos los símbolos, más de los 65 535 que admite un DLL
+# ("export ordinal too large"). No afecta al wasm (target wasm32v1-none).
+[target.x86_64-pc-windows-gnu]
+rustflags = ["-C", "link-arg=-Wl,--exclude-all-symbols"]

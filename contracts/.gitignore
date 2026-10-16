@@ -1,0 +1,2 @@
+# Snapshots que soroban-sdk regenera en cada `cargo test`
+test_snapshots/

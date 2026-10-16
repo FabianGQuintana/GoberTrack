@@ -1,0 +1,8 @@
+{
+  "capturado_en": "2026-10-16T13:35:56.241Z",
+  "rpc": "https://soroban-testnet.stellar.org",
+  "contrato": "CCRFFXP25OT5FOI3VJXAX666QI76YWHV52IYTG45ICK4TMB7QFS7KYSM",
+  "ledger_inicial": 5220081,
+  "red": "Test SDF Network ; September 2015",
+  "nota": "Respuestas reales del RPC de testnet (campo result del JSON-RPC). Las genera scripts/capturar-fixtures-testnet.ts."
+}

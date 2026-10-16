@@ -1,0 +1,12 @@
+{
+  // Compila src/ a dist/ para `npm start`. Los imports relativos se escriben con .ts y tsc los
+  // reescribe a .js (rewriteRelativeImportExtensions).
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "dist",
+    "rootDir": "src",
+    "sourceMap": true
+  },
+  "include": ["src"]
+}

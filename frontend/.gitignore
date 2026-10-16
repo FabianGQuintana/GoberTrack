@@ -1,0 +1,9 @@
+# Generados por Next
+next-env.d.ts
+*.tsbuildinfo
+.next/
+out/
+# Pruebas
+coverage/
+# Plantilla de entorno versionada (la raíz ignora .env.*)
+!.env.testnet.example
