@@ -4,8 +4,9 @@
 export const DECIMALES = 7;
 const ESCALA = 10n ** BigInt(DECIMALES);
 
-// SUPUESTO: activo de prueba tipo USDC en testnet (PRD §11). Se usa solo como etiqueta.
-export const SIMBOLO_TOKEN = "USDC";
+// DATO SIMULADO: activo de prueba tipo USDC en testnet (PRD §11; contracts/DEPLOY.md lo emite con el
+// código USDCDEMO). Se usa solo como etiqueta.
+export const SIMBOLO_TOKEN = "USDCDEMO";
 
 const PATRON_MONTO = /^[0-9]+$/;
 

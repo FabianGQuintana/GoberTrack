@@ -32,6 +32,29 @@ function i128(valor: string): xdr.ScVal {
   return nativeToScVal(BigInt(valor), { type: "i128" });
 }
 
+/** `NuevoHito` es un struct: un mapa con claves Symbol ordenadas (nativeToScVal las ordena). */
+function nuevoHitoAScVal(descripcion: string, monto: bigint): xdr.ScVal {
+  return nativeToScVal(
+    { descripcion, monto },
+    { type: { descripcion: ["symbol", "string"], monto: ["symbol", "i128"] } },
+  );
+}
+
+/** JSON `[{descripcion, monto}]` (monto en unidades mínimas, como string) → Vec<NuevoHito>. */
+function hitosAScVal(json: string): xdr.ScVal {
+  const lista: unknown = JSON.parse(json);
+  if (!Array.isArray(lista)) throw new Error("hitos: se esperaba una lista");
+  return xdr.ScVal.scvVec(
+    lista.map((h, i) => {
+      const { descripcion, monto } = (h ?? {}) as { descripcion?: unknown; monto?: unknown };
+      if (typeof descripcion !== "string" || typeof monto !== "string" || !/^-?[0-9]+$/.test(monto)) {
+        throw new Error(`hito ${i}: descripción o monto inválidos`);
+      }
+      return nuevoHitoAScVal(descripcion, BigInt(monto));
+    }),
+  );
+}
+
 /** Un argumento de la vista previa → ScVal, según su tipo Soroban. */
 export function argumentoAScVal({ nombre, tipo, valor }: Argumento): xdr.ScVal {
   switch (tipo) {
@@ -46,6 +69,13 @@ export function argumentoAScVal({ nombre, tipo, valor }: Argumento): xdr.ScVal {
     case "Decision":
       if (valor !== "Aceptar" && valor !== "Rechazar") throw new Error(`Decision inválida: "${valor}"`);
       return enumUnitario(valor);
+    case "String":
+      return nativeToScVal(valor, { type: "string" });
+    case "u64":
+      if (!/^[0-9]+$/.test(valor)) throw new Error(`u64 inválido: "${valor}"`);
+      return nativeToScVal(BigInt(valor), { type: "u64" });
+    case "Vec<NuevoHito>":
+      return hitosAScVal(valor);
     default:
       throw new Error(`Tipo de argumento sin conversión: ${tipo} (${nombre})`);
   }
@@ -69,7 +99,8 @@ export interface NuevaObra {
 }
 
 /**
- * Argumentos de `crear_obra` (§3.1). No tiene pantalla: la usa el script de la demo.
+ * Argumentos de `crear_obra` (§3.1) para el script de la demo. El panel del municipio usa
+ * `construirCrearObra` (invocaciones.ts), que produce los mismos ScVal.
  * `NuevoHito` es un struct: un mapa con claves Symbol ordenadas (nativeToScVal las ordena).
  */
 export function argumentosCrearObra(o: NuevaObra): xdr.ScVal[] {
@@ -81,14 +112,7 @@ export function argumentosCrearObra(o: NuevaObra): xdr.ScVal[] {
     new Address(o.veedor).toScVal(),
     new Address(o.arbitro).toScVal(),
     new Address(o.token).toScVal(),
-    xdr.ScVal.scvVec(
-      o.hitos.map((h) =>
-        nativeToScVal(
-          { descripcion: h.descripcion, monto: h.monto },
-          { type: { descripcion: ["symbol", "string"], monto: ["symbol", "i128"] } },
-        ),
-      ),
-    ),
+    xdr.ScVal.scvVec(o.hitos.map((h) => nuevoHitoAScVal(h.descripcion, h.monto))),
     nativeToScVal(BigInt(o.periodoObjecion), { type: "u64" }),
   ];
 }

@@ -15,7 +15,7 @@ export interface Argumento {
 }
 
 export interface Invocacion {
-  funcion: Accion;
+  funcion: Accion | "crear_obra";
   argumentos: Argumento[];
   /** Quién tiene que firmar con `require_auth()`; null en `liberar_pago` (sin firma de rol). */
   firma: { rol: Rol; direccion: string } | null;
@@ -31,6 +31,42 @@ export type ParametrosInvocacion =
 
 /** Lo que hace falta de la obra: su id y las direcciones de los roles que firman. */
 export type ObraInvocable = Pick<Obra, "id" | "municipio" | "contratista" | "veedor" | "arbitro">;
+
+/** Datos de `crear_obra` (contract.md §3.1). Montos en unidades mínimas; período en segundos. */
+export interface DatosNuevaObra {
+  municipio: string;
+  nombre: string;
+  contratista: string;
+  inspector: string;
+  veedor: string;
+  arbitro: string;
+  token: string;
+  hitos: { descripcion: string; monto: bigint }[];
+  periodoObjecion: number;
+}
+
+/** `crear_obra(...)`: firma el municipio. Los hitos van como JSON (montos en string, sin pasar por Number). */
+export function construirCrearObra(d: DatosNuevaObra): Invocacion {
+  return {
+    funcion: "crear_obra",
+    argumentos: [
+      { nombre: "municipio", tipo: "Address", valor: d.municipio },
+      { nombre: "nombre", tipo: "String", valor: d.nombre },
+      { nombre: "contratista", tipo: "Address", valor: d.contratista },
+      { nombre: "inspector", tipo: "Address", valor: d.inspector },
+      { nombre: "veedor", tipo: "Address", valor: d.veedor },
+      { nombre: "arbitro", tipo: "Address", valor: d.arbitro },
+      { nombre: "token", tipo: "Address", valor: d.token },
+      {
+        nombre: "hitos",
+        tipo: "Vec<NuevoHito>",
+        valor: JSON.stringify(d.hitos.map((h) => ({ descripcion: h.descripcion, monto: h.monto.toString() }))),
+      },
+      { nombre: "periodo_objecion", tipo: "u64", valor: String(d.periodoObjecion) },
+    ],
+    firma: { rol: "municipio", direccion: d.municipio },
+  };
+}
 
 const argObra = (obra: ObraInvocable): Argumento => ({ nombre: "obra", tipo: "u32", valor: String(obra.id) });
 const argHito = (hito: number): Argumento => ({ nombre: "hito", tipo: "u32", valor: String(hito) });
