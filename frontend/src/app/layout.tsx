@@ -11,7 +11,7 @@ const publicSans = Public_Sans({ subsets: ["latin"], weight: ["400", "500", "600
 const plexMono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["400", "500"], variable: "--fuente-plex-mono" });
 
 export const metadata: Metadata = {
-  title: { default: "Obra Pública Verificable", template: "%s · Obra Pública Verificable" },
+  title: { default: "GoberTrack", template: "%s · GoberTrack" },
   description:
     "Seguí cada obra pública hito por hito: pagos aprobados por inspector y veedor, con reglas que aplica un contrato en Stellar.",
 };

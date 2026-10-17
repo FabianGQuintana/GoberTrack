@@ -1,4 +1,4 @@
-/* Sistema de diseño de Obra Pública Verificable (Claude Design, 16/10/2026).
+/* Sistema de diseño de GoberTrack (Claude Design, 16/10/2026).
    Tres reglas: una sola acción principal por pantalla, el estado nunca se dice solo con color, y lo que
    no se puede hacer ahora se ve deshabilitado con el motivo al lado. Todo par fondo/texto cumple AA. */
 
@@ -7,6 +7,8 @@
   --bg: #f2f5f6;
   --sf: #ffffff;
   --s2: #f6f8f9;
+  --marca-base: #0f2a4a;
+  --marca-acento: #13a37f;
   --ln: #d2dbdf;
   --tx: #12232a;
   --mu: #4a5d66;
@@ -57,6 +59,8 @@
     --erb: #4a1d1d;
     --erf: #ffb9b9;
     --sh: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --marca-base: #e9f1f3;
+  --marca-acento: #2bc79c;
   }
 }
 
@@ -85,6 +89,8 @@
   --erb: #4a1d1d;
   --erf: #ffb9b9;
   --sh: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --marca-base: #e9f1f3;
+  --marca-acento: #2bc79c;
 }
 
 /* ---------- Base ---------- */
@@ -236,16 +242,21 @@ ol {
   min-height: 44px;
 }
 
-.marca__logo {
+.marca__isotipo {
   width: 36px;
   height: 36px;
-  border-radius: 10px;
-  background: var(--pr);
-  color: var(--onpr);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   flex: none;
+}
+
+.marca__texto {
+  height: 22px;
+  width: auto;
+}
+
+@media (max-width: 480px) {
+  .marca__texto {
+    display: none;
+  }
 }
 
 .cabecera__lado {

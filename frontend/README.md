@@ -1,4 +1,4 @@
-# Frontend — Obra Pública Verificable
+# Frontend — GoberTrack
 
 Tablero público y panel de firmantes (PRD §10). Next.js 16 (App Router) + React 19 + TypeScript.
 Transacciones con `@stellar/stellar-sdk` 17 y firma con Freighter 6.

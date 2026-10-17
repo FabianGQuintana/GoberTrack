@@ -1,4 +1,4 @@
-# Backend — Obra Pública Verificable
+# Backend — GoberTrack
 
 API de lectura del estado del contrato + subida de evidencia, según `interfaces/openapi.yaml`
 v1.0.0. Dos modos de datos (`MODO_DATOS`):

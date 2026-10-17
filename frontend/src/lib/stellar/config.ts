@@ -6,7 +6,7 @@ import { Networks } from "@stellar/stellar-sdk/base";
 import { StrKey } from "@stellar/stellar-sdk/base";
 
 export interface ConfigRed {
-  /** Id del contrato de Obra Pública Verificable (C…). */
+  /** Id del contrato de GoberTrack (C…). */
   contratoId: string;
   /** URL del RPC de Soroban. */
   rpcUrl: string;

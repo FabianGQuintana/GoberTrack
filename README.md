@@ -1,4 +1,8 @@
-# Obra Pública Verificable
+# GoberTrack
+
+<img src="frontend/public/marca/gobertrack-logo.svg" alt="GoberTrack" width="360">
+
+Antes llamado *Obra Pública Verificable*.
 
 Ideathon NEA Tech 2026 · vertical Stellar. El pago de cada hito de una obra pública queda retenido en un contrato Soroban. Solo se libera con la aprobación del inspector y del veedor, después del período de objeción y sin objeción abierta. Todo queda registrado en la cadena y un tablero público lo muestra en vivo.
 

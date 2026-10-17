@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { abreviar } from "../ui/Huella";
 import { Icono } from "../ui/Icono";
+import { Logo } from "../ui/Logo";
 import { ModalWallet } from "./ModalWallet";
 import { useSesion } from "./ProveedorSesion";
 
@@ -51,11 +52,8 @@ export function Cabecera({ simulado }: { simulado: boolean }) {
   return (
     <header className="cabecera">
       <div className="contenedor cabecera__interior">
-        <Link className="marca" href="/">
-          <span className="marca__logo">
-            <Icono nombre="escudo" tamano={24} />
-          </span>
-          Obra Pública Verificable
+        <Link className="marca" href="/" aria-label="GoberTrack, ir al inicio">
+          <Logo />
         </Link>
         <div className="cabecera__lado">
           {simulado && <span className="tag-simulado">DATO SIMULADO</span>}

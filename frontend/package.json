@@ -2,7 +2,7 @@
   "name": "opv-frontend",
   "version": "0.1.0",
   "private": true,
-  "description": "Obra Pública Verificable — tablero público y panel de firmantes",
+  "description": "GoberTrack — tablero público y panel de firmantes",
   "engines": {
     "node": ">=22"
   },
