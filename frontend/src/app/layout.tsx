@@ -1,13 +1,19 @@
 import type { Metadata, Viewport } from "next";
-import Link from "next/link";
+import { IBM_Plex_Mono, Public_Sans } from "next/font/google";
+import { Cabecera } from "@/components/sesion/Cabecera";
+import { ProveedorSesion } from "@/components/sesion/ProveedorSesion";
 import { cliente } from "@/lib/api/cliente";
 import { SIMBOLO_TOKEN } from "@/lib/montos";
 import "./globals.css";
 
+// Public Sans nació en un sistema de diseño de gobierno; IBM Plex Mono solo para direcciones y huellas.
+const publicSans = Public_Sans({ subsets: ["latin"], weight: ["400", "500", "600", "700"], variable: "--fuente-public-sans" });
+const plexMono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["400", "500"], variable: "--fuente-plex-mono" });
+
 export const metadata: Metadata = {
   title: { default: "Obra Pública Verificable", template: "%s · Obra Pública Verificable" },
   description:
-    "Tablero público de obras con pagos por hito aprobados por inspector y veedor, registrados en Stellar.",
+    "Seguí cada obra pública hito por hito: pagos aprobados por inspector y veedor, con reglas que aplica un contrato en Stellar.",
 };
 
 export const viewport: Viewport = {
@@ -16,42 +22,24 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const simulado = cliente.modo === "mock";
   return (
-    <html lang="es-AR">
+    <html lang="es-AR" className={`${publicSans.variable} ${plexMono.variable}`}>
       <body>
         <a className="saltar" href="#principal">
           Saltar al contenido
         </a>
-        <header className="cabecera">
-          <div className="cabecera__interior">
-            <Link className="marca" href="/">
-              Obra Pública Verificable
-            </Link>
-            <nav aria-label="Principal">
-              <Link href="/">Tablero de obras</Link>
-            </nav>
-          </div>
-        </header>
-        <main id="principal" className="contenido">
-          {cliente.modo === "mock" && (
-            <p className="aviso aviso--alerta" role="note">
-              <strong>DATO SIMULADO.</strong> Modo de demostración: las obras, montos, cuentas y
-              eventos que ves son datos de prueba, no vienen de la red.
-            </p>
-          )}
-          {children}
-        </main>
-        <footer className="pie">
-          <div className="pie__interior">
-            <p>
-              Montos en {SIMBOLO_TOKEN} de prueba sobre Stellar testnet (SUPUESTO), con 7 decimales.
-              Horarios en hora de Argentina.
-            </p>
-            <p>
-              Origen de los datos:{" "}
-              {cliente.modo === "mock" ? "simulados en el frontend (modo mock)" : "backend de la API"}.
-            </p>
-          </div>
+        <ProveedorSesion>
+          <Cabecera simulado={simulado} />
+          <main id="principal">{children}</main>
+        </ProveedorSesion>
+        <footer className="contenedor pie chico suave">
+          <p>
+            {simulado
+              ? "DATO SIMULADO: las obras, montos, cuentas y eventos de esta pantalla son datos de ejemplo, no vienen de la red. "
+              : "Los datos vienen del contrato en Stellar testnet, a través de nuestro backend; podés comprobarlos contra la red desde cada obra. "}
+            Montos en {SIMBOLO_TOKEN}, un token de prueba con 7 decimales (DATO SIMULADO). Horarios en hora de Argentina.
+          </p>
         </footer>
       </body>
     </html>
