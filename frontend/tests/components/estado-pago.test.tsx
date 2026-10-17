@@ -101,7 +101,7 @@ describe("EstadoPago: otros casos", () => {
 
   it("Pagado con momento_pago: 'Pagado el …'; sin momento, 'Pagado'", async () => {
     const { unmount } = await montar(hitoEnEstado(1, "Pagado"));
-    expect(screen.getByText(/^Pagado el \d{2}\/\d{2}\/\d{4}, \d{2}:\d{2}:\d{2}$/)).toBeInTheDocument();
+    expect(screen.getByText(/^Pagado el \d{2}\/\d{2}\/\d{4} \d{2}:\d{2}$/)).toBeInTheDocument();
     unmount();
     await montar({ ...hitoEnEstado(1, "Pagado"), momento_pago: null });
     expect(screen.getByText("Pagado")).toBeInTheDocument();

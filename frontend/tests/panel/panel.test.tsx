@@ -14,197 +14,54 @@ vi.mock("@stellar/freighter-api", () => freighter);
 vi.mock("next/server", () => ({ connection: async () => undefined }));
 vi.mock("next/navigation", async (importarOriginal) => ({
   ...(await importarOriginal<typeof import("next/navigation")>()),
-  useRouter: () => ({ refresh: vi.fn() }),
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
 }));
 
 const PASSPHRASE_TESTNET = "Test SDF Network ; September 2015";
 const PASSPHRASE_PUBLICA = "Public Global Stellar Network ; September 2015";
 
-async function abrirPanel(id: string) {
+type Usuario = ReturnType<typeof userEvent.setup>;
+
+async function abrirPanel(id: string, vista?: string) {
   const usuario = userEvent.setup();
-  render(await PaginaPanel({ params: Promise.resolve({ id }) }));
+  render(
+    await PaginaPanel({
+      params: Promise.resolve({ id }),
+      searchParams: Promise.resolve(vista ? { vista } : {}),
+    }),
+  );
   return usuario;
 }
 
-async function simular(usuario: ReturnType<typeof userEvent.setup>, rol: string) {
+async function simular(usuario: Usuario, rol: string) {
   await usuario.selectOptions(screen.getByLabelText("Rol simulado"), rol);
   // `useAhora` completa el contexto después de montar.
   await screen.findByText(/Rol en esta obra:/);
 }
 
-/** El <details> de un hito, por su número en pantalla. */
-function hitoPanel(numero: number): HTMLElement {
-  const resumen = screen.getByText(new RegExp(`^Hito ${numero}:`), { selector: "summary strong" });
-  return resumen.closest("details") as HTMLElement;
-}
-
-/** Párrafos "No aplica: <código>. <detalle>" de un ámbito (el código va en un <strong>). */
-function motivos(ambito: { getAllByText: typeof screen.getAllByText }, texto: string): HTMLElement[] {
-  return ambito.getAllByText((_c, el) => !!el?.matches("p.motivo") && (el.textContent ?? "").includes(`No aplica: ${texto}`));
-}
+const proximaAccion = () => screen.getByRole("region", { name: "Tu próxima acción" });
+/** El modal de confirmación de una acción. */
+const modal = () => screen.getByRole("dialog");
 
 beforeEach(() => {
   for (const f of Object.values(freighter)) f.mockReset();
 });
 
-describe("panel de firmantes: acciones con rol simulado", () => {
-  it("antes de elegir rol no hay acciones y se explica qué hacer", async () => {
+describe("panel: antes de elegir cuenta", () => {
+  it("no hay acciones y se explica qué hacer", async () => {
     await abrirPanel("1");
     expect(screen.getByRole("heading", { level: 1, name: "Panel de firmantes" })).toBeInTheDocument();
-    expect(screen.getByText(/Conectá Freighter \(o simulá un rol\)/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Aprobar hito/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/Conectá Freighter \(o simulá un rol\) para ver tu vista/)).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Tu próxima acción" })).not.toBeInTheDocument();
     expect(screen.getByLabelText("Rol simulado")).toBeInTheDocument(); // NODE_ENV !== "production"
   });
 
-  it("obra 1 como Veedor: 'Aprobar hito 2' deshabilitado con ObjecionAbierta visible", async () => {
-    const u = await abrirPanel("1");
-    await simular(u, "veedor");
-    expect(screen.getByText("Veedor", { selector: "strong" })).toBeInTheDocument();
-    const h2 = within(hitoPanel(2));
-    const boton = h2.getByRole("button", { name: "Aprobar hito 2" });
-    expect(boton).toBeDisabled();
-    expect(boton).toHaveAccessibleDescription(/ObjecionAbierta/);
-    expect(motivos(h2, "ObjecionAbierta")[0]).toBeVisible();
-    // El veedor tampoco puede declarar ni resolver.
-    expect(h2.getByRole("button", { name: "Declarar hito 2" })).toBeDisabled();
-    expect(motivos(h2, "Error de autorización del host").length).toBeGreaterThan(0);
-    expect(h2.getByRole("button", { name: "Aceptar objeción del hito 2" })).toBeDisabled();
-    expect(h2.getByRole("button", { name: "Liberar pago del hito 2" })).toBeDisabled();
-    expect(h2.getByRole("button", { name: "Objetar hito 2" })).toBeDisabled();
-  });
-
-  it("obra 1 como Árbitro (dirección del municipio): rol 'Municipio y Árbitro' y 'Aceptar objeción' habilitado", async () => {
-    const u = await abrirPanel("1");
-    await simular(u, "arbitro");
-    expect(screen.getByText("Municipio y Árbitro", { selector: "strong" })).toBeInTheDocument();
-    const h2 = within(hitoPanel(2));
-    expect(h2.getByRole("button", { name: "Aceptar objeción del hito 2" })).toBeEnabled();
-    expect(h2.getByRole("button", { name: "Rechazar objeción del hito 2" })).toBeEnabled();
-    // En el hito 1 (Pagado) no hay nada que resolver: EstadoInvalido.
-    const h1 = within(hitoPanel(1));
-    expect(h1.getByRole("button", { name: "Aceptar objeción del hito 1" })).toBeDisabled();
-    expect(motivos(h1, "EstadoInvalido")[0]).toBeInTheDocument();
-  });
-
-  it("al hacer clic en 'Aceptar objeción' muestra lo que se enviaría: resolver_objecion(", async () => {
-    const u = await abrirPanel("1");
-    await simular(u, "arbitro");
-    await u.click(within(hitoPanel(2)).getByRole("button", { name: "Aceptar objeción del hito 2" }));
-    const vista = screen.getByRole("region", { name: "Lo que se enviaría al contrato" });
-    expect(vista).toHaveTextContent("resolver_objecion(");
-    expect(vista).toHaveTextContent("decision: Decision = Aceptar");
-    expect(vista).toHaveTextContent("hito: u32 = 1");
-    expect(vista).toHaveTextContent(CUENTAS.municipio);
-    await u.click(within(vista).getByRole("button", { name: "Cerrar" }));
-    expect(screen.queryByRole("region", { name: "Lo que se enviaría al contrato" })).not.toBeInTheDocument();
-  });
-
-  it("obra 3 'Sin rol': 'Liberar pago del hito 2' habilitado y el clic muestra liberar_pago(", async () => {
-    const u = await abrirPanel("3");
-    await simular(u, "sin-rol");
-    expect(screen.getByText("Sin rol", { selector: "strong" })).toBeInTheDocument();
-    const h2 = within(hitoPanel(2));
-    const liberar = h2.getByRole("button", { name: "Liberar pago del hito 2" });
-    expect(liberar).toBeEnabled();
-    await u.click(liberar);
-    const vista = screen.getByRole("region", { name: "Lo que se enviaría al contrato" });
-    expect(vista).toHaveTextContent("liberar_pago(");
-    expect(vista).toHaveTextContent("obra: u32 = 3");
-    expect(vista).toHaveTextContent("hito: u32 = 1");
-    expect(vista).toHaveTextContent(/No pide la firma de un rol/);
-    // Sin rol no puede firmar nada más.
-    expect(h2.getByRole("button", { name: "Aprobar hito 2" })).toBeDisabled();
-    expect(h2.getByRole("button", { name: "Aprobar hito 2" })).toHaveAccessibleDescription(/NoAutorizado/);
-  });
-
-  it("obra 1 como Inspector: aprobar el hito 2 → ObjecionAbierta (el inspector ya aprobó, pero manda el estado)", async () => {
-    const u = await abrirPanel("1");
-    await simular(u, "inspector");
-    const h2 = within(hitoPanel(2));
-    expect(h2.getByRole("button", { name: "Aprobar hito 2" })).toBeDisabled();
-    expect(h2.getByRole("button", { name: "Aprobar hito 2" })).toHaveAccessibleDescription(/ObjecionAbierta/);
-    // El hito 3 depende del 2 (Objetado): HitoAnteriorPendiente.
-    expect(within(hitoPanel(3)).getByRole("button", { name: "Aprobar hito 3" })).toHaveAccessibleDescription(
-      /HitoAnteriorPendiente/,
-    );
-  });
-
-  it("obra 2 como Veedor: puede aprobar el hito 1 (Evidencia, dentro del período)", async () => {
+  it("volver a 'No simular' oculta la vista", async () => {
     const u = await abrirPanel("2");
     await simular(u, "veedor");
-    const h1 = within(hitoPanel(1));
-    expect(h1.getByRole("button", { name: "Aprobar hito 1" })).toBeEnabled();
-    await u.click(h1.getByRole("button", { name: "Aprobar hito 1" }));
-    expect(screen.getByRole("region", { name: "Lo que se enviaría al contrato" })).toHaveTextContent("aprobar(");
-  });
-
-  it("obra 2 como Inspector: ya aprobó → YaDecidio", async () => {
-    const u = await abrirPanel("2");
-    await simular(u, "inspector");
-    const boton = within(hitoPanel(1)).getByRole("button", { name: "Aprobar hito 1" });
-    expect(boton).toBeDisabled();
-    expect(boton).toHaveAccessibleDescription(/YaDecidio/);
-  });
-
-  it("obra 1 como Contratista: declarar el hito 3 → HitoAnteriorPendiente", async () => {
-    const u = await abrirPanel("1");
-    await simular(u, "contratista");
-    const boton = within(hitoPanel(3)).getByRole("button", { name: "Declarar hito 3" });
-    expect(boton).toBeDisabled();
-    expect(boton).toHaveAccessibleDescription(/HitoAnteriorPendiente/);
-  });
-
-  it("el municipio puede fondear: el monto se valida en vivo con el motivo del contrato", async () => {
-    const u = await abrirPanel("1"); // fondeado 25.000 de 40.000
-    await simular(u, "municipio");
-    const campo = screen.getByLabelText("Monto a depositar");
-    const boton = screen.getByRole("button", { name: "Fondear la obra" });
-    expect(boton).toBeDisabled(); // vacío → MontoInvalido
-    expect(motivos(screen, "MontoInvalido")[0]).toBeInTheDocument();
-
-    await u.type(campo, "15000,5");
-    expect(boton).toBeDisabled();
-    expect(motivos(screen, "ExcedeMontoTotal")[0]).toBeInTheDocument();
-    expect(screen.getByText("= 15.000,5000000 USDC")).toBeInTheDocument();
-
-    await u.clear(campo);
-    await u.type(campo, "15000");
-    expect(boton).toBeEnabled();
-    await u.click(boton);
-    const vista = screen.getByRole("region", { name: "Lo que se enviaría al contrato" });
-    expect(vista).toHaveTextContent("fondear(");
-    expect(vista).toHaveTextContent("monto: i128 = 150000000000");
-  });
-
-  it("un monto con formato inválido avisa y no habilita", async () => {
-    const u = await abrirPanel("1");
-    await simular(u, "municipio");
-    await u.type(screen.getByLabelText("Monto a depositar"), "1.500,5");
-    expect(screen.getByText(/No es un monto válido/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Fondear la obra" })).toBeDisabled();
-  });
-
-  it("sin ser municipio, fondear queda con el motivo de autorización del host", async () => {
-    const u = await abrirPanel("1");
-    await simular(u, "contratista");
-    expect(screen.getByRole("button", { name: "Fondear la obra" })).toBeDisabled();
-    const fondear = screen.getByRole("button", { name: "Fondear la obra" }).closest(".accion") as HTMLElement;
-    expect(within(fondear).getByText(/Error de autorización del host/, { selector: "strong" })).toBeInTheDocument();
-    expect(screen.queryByLabelText("Monto a depositar")).not.toBeInTheDocument();
-  });
-
-  it("volver a 'No simular' oculta las acciones", async () => {
-    const u = await abrirPanel("1");
-    await simular(u, "veedor");
+    expect(proximaAccion()).toBeInTheDocument();
     await u.selectOptions(screen.getByLabelText("Rol simulado"), "");
-    expect(screen.queryByRole("button", { name: /Aprobar hito/ })).not.toBeInTheDocument();
-  });
-
-  it("el hito actual (primero sin pagar) viene abierto y los pagados cerrados", async () => {
-    const u = await abrirPanel("1");
-    await simular(u, "veedor");
-    expect(hitoPanel(1)).not.toHaveAttribute("open");
-    expect(hitoPanel(2)).toHaveAttribute("open");
+    expect(screen.queryByRole("region", { name: "Tu próxima acción" })).not.toBeInTheDocument();
   });
 
   it.each(["99", "abc"])("id %j → notFound", async (id) => {
@@ -214,9 +71,222 @@ describe("panel de firmantes: acciones con rol simulado", () => {
   });
 });
 
-describe("panel de firmantes: Freighter", () => {
-  const conectar = async (u: ReturnType<typeof userEvent.setup>) =>
-    u.click(screen.getByRole("button", { name: "Conectar Freighter" }));
+describe("vista del veedor", () => {
+  it("obra 2 (Evidencia, dentro del período): aprobar habilitado; objetar pide el documento del motivo", async () => {
+    const u = await abrirPanel("2");
+    await simular(u, "veedor");
+    expect(screen.getByText("Tu vista como veedor independiente")).toBeInTheDocument();
+    const accion = within(proximaAccion());
+    expect(accion.getByRole("heading", { name: /Decidí sobre el hito 1/ })).toBeInTheDocument();
+    expect(accion.getByText("Te queda para objetar")).toBeInTheDocument();
+    expect(accion.getByRole("button", { name: "Aprobar hito 1" })).toBeEnabled();
+    const objetar = accion.getByRole("button", { name: "Objetar hito 1" });
+    expect(objetar).toBeDisabled();
+    expect(objetar).toHaveAccessibleDescription("Falta subir el documento con el motivo");
+    expect(accion.getByText(/Decidís una sola vez por declaración/)).toBeInTheDocument();
+  });
+
+  it("aprobar abre la confirmación con lo que se enviaría: aprobar(", async () => {
+    const u = await abrirPanel("2");
+    await simular(u, "veedor");
+    await u.click(screen.getByRole("button", { name: "Aprobar hito 1" }));
+    expect(modal()).toHaveAccessibleName("¿Aprobar el hito 1?");
+    expect(modal()).toHaveTextContent("Vas a registrar tu aprobación como veedor.");
+    expect(modal()).toHaveTextContent("aprobar(");
+    expect(modal()).toHaveTextContent(`firmante: Address = ${CUENTAS.veedorAgua}`);
+    expect(modal()).toHaveTextContent("Vista previa: no se firmó ni se envió nada");
+    await u.click(within(modal()).getByRole("button", { name: "Cancelar" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("obra 1 (hito 2 objetado por el veedor): no hay decisión pendiente, espera al árbitro", async () => {
+    const u = await abrirPanel("1");
+    await simular(u, "veedor");
+    expect(within(proximaAccion()).getByRole("heading", { name: "Tu objeción del hito 2 espera al árbitro" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Aprobar hito/ })).not.toBeInTheDocument();
+  });
+});
+
+describe("vista del árbitro", () => {
+  it("obra 1: la cuenta del municipio es 'Municipio y Árbitro' y entra como árbitro por la objeción abierta", async () => {
+    const u = await abrirPanel("1");
+    await simular(u, "arbitro");
+    expect(screen.getByText("Municipio y Árbitro", { selector: "strong" })).toBeInTheDocument();
+    expect(screen.getByText("Tu vista como árbitro")).toBeInTheDocument();
+    const confirmar = within(proximaAccion()).getByRole("button", { name: "Confirmar decisión" });
+    expect(confirmar).toBeDisabled();
+    expect(confirmar).toHaveAccessibleDescription("Elegí Aceptar o Rechazar para continuar");
+  });
+
+  it("elegir Rechazar explica la consecuencia y abre resolver_objecion(…Rechazar)", async () => {
+    const u = await abrirPanel("1");
+    await simular(u, "arbitro");
+    const rechazar = screen.getByRole("radio", { name: /Rechazar la objeción/ });
+    expect(rechazar).toHaveTextContent("Cuenta como la aprobación del veedor");
+    await u.click(rechazar);
+    expect(rechazar).toHaveAttribute("aria-checked", "true");
+    await u.click(screen.getByRole("button", { name: "Confirmar decisión" }));
+    expect(modal()).toHaveAccessibleName("¿Rechazar la objeción del hito 2?");
+    expect(modal()).toHaveTextContent("resolver_objecion(");
+    expect(modal()).toHaveTextContent("decision: Decision = Rechazar");
+    expect(modal()).toHaveTextContent("hito: u32 = 1");
+    expect(modal()).toHaveTextContent(CUENTAS.municipio);
+  });
+
+  it("la misma cuenta puede cambiar a la vista de municipio", async () => {
+    const u = await abrirPanel("1");
+    await simular(u, "arbitro");
+    await u.click(screen.getByRole("button", { name: "Esta cuenta también es municipio: cambiar a esa vista" }));
+    expect(screen.getByRole("heading", { level: 1, name: "Tus obras" })).toBeInTheDocument();
+    expect(screen.getByText("Tu vista como municipio")).toBeInTheDocument();
+  });
+
+  it("?vista=municipio entra directo a esa vista", async () => {
+    const u = await abrirPanel("1", "municipio");
+    await simular(u, "municipio");
+    expect(screen.getByRole("heading", { level: 1, name: "Tus obras" })).toBeInTheDocument();
+  });
+});
+
+describe("vista del inspector", () => {
+  it("obra 2: ya aprobó el hito 1, no tiene nada para revisar y la bandeja lo dice", async () => {
+    const u = await abrirPanel("2");
+    await simular(u, "inspector");
+    expect(screen.getByRole("heading", { level: 1, name: "Hitos para revisar" })).toBeInTheDocument();
+    expect(within(proximaAccion()).getByRole("heading", { name: "No tenés hitos para revisar en esta obra" })).toBeInTheDocument();
+    const bandeja = screen.getByRole("heading", { name: "Tu bandeja" }).closest("section") as HTMLElement;
+    expect(within(bandeja).getByText("Ya aprobaste este hito")).toBeInTheDocument();
+  });
+});
+
+describe("vista del contratista", () => {
+  it("obra 1: declarar el hito 3 → HitoAnteriorPendiente, y la lista de condiciones para cobrar el hito 2", async () => {
+    const u = await abrirPanel("1");
+    await simular(u, "contratista");
+    expect(within(proximaAccion()).getByRole("heading", { name: "Esperá la decisión del árbitro sobre el hito 2" })).toBeInTheDocument();
+    const declarar = screen.getByRole("button", { name: "Declarar hito 3" });
+    expect(declarar).toBeDisabled();
+    expect(declarar).toHaveAccessibleDescription(/HitoAnteriorPendiente/);
+
+    const condiciones = within(screen.getByRole("list", { name: "Condiciones para cobrar el hito 2" })).getAllByRole("listitem");
+    expect(condiciones).toHaveLength(6);
+    expect(screen.getByText("Se cumplen 4 de 6 condiciones. Para cobrar tienen que cumplirse todas.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Liberar pago del hito 2" })).toHaveAccessibleDescription(/ObjecionAbierta/);
+  });
+
+  it("obra 5 (todo Pendiente): declarar el hito 1 pide primero la evidencia", async () => {
+    const u = await abrirPanel("5");
+    await simular(u, "contratista");
+    const declarar = within(proximaAccion()).getByRole("button", { name: "Declarar hito 1" });
+    expect(declarar).toBeDisabled();
+    expect(declarar).toHaveAccessibleDescription("Primero subí la evidencia para obtener su huella");
+  });
+
+  it("no ve el formulario de depósito del municipio", async () => {
+    const u = await abrirPanel("1");
+    await simular(u, "contratista");
+    expect(screen.queryByLabelText("Monto a depositar")).not.toBeInTheDocument();
+  });
+});
+
+describe("vista del municipio: depositar", () => {
+  it("propone el faltante y valida el monto en vivo con el motivo del contrato", async () => {
+    const u = await abrirPanel("1", "municipio"); // fondeado 25.000 de 40.000
+    await simular(u, "municipio");
+    const campo = screen.getByLabelText("Monto a depositar");
+    const boton = screen.getByRole("button", { name: "Depositar y firmar" });
+    expect(campo).toHaveValue("15000");
+    expect(boton).toBeEnabled();
+
+    await u.clear(campo);
+    expect(boton).toBeDisabled(); // vacío → MontoInvalido
+    expect(boton).toHaveAccessibleDescription(/MontoInvalido/);
+
+    await u.type(campo, "15000,5");
+    expect(boton).toHaveAccessibleDescription(/ExcedeMontoTotal/);
+    expect(screen.getByText(/^= 15\.000,5000000 USDCDEMO/)).toBeInTheDocument();
+
+    await u.clear(campo);
+    await u.type(campo, "15000");
+    await u.click(boton);
+    expect(modal()).toHaveTextContent("fondear(");
+    expect(modal()).toHaveTextContent("monto: i128 = 150000000000");
+    expect(modal()).toHaveTextContent("El saldo bloqueado pasa de 15.000,0000000 USDCDEMO a 30.000,0000000 USDCDEMO.");
+  });
+
+  it("un monto con formato inválido avisa y no habilita", async () => {
+    const u = await abrirPanel("1", "municipio");
+    await simular(u, "municipio");
+    await u.clear(screen.getByLabelText("Monto a depositar"));
+    await u.type(screen.getByLabelText("Monto a depositar"), "1.500,5");
+    expect(screen.getByText(/No es un monto válido/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Depositar y firmar" })).toBeDisabled();
+  });
+
+  it("muestra el resumen financiero de sus obras con el total", async () => {
+    const u = await abrirPanel("1", "municipio");
+    await simular(u, "municipio");
+    const tabla = screen.getByRole("table");
+    expect(within(tabla).getByRole("link", { name: "Pavimentación calle Los Aromos" })).toBeInTheDocument();
+    expect(within(tabla).getByText("Total")).toBeInTheDocument();
+  });
+});
+
+describe("vista del municipio: crear obra", () => {
+  const PRUEBA = "GALW3CGSZ3GBRSWLYYHXBBVICM2H6U5JASVMGQQBEBIRIYGQQTAIFK5H";
+
+  async function completar(u: Usuario, roles: { contratista: string; inspector: string; veedor: string }) {
+    await u.type(screen.getByLabelText("Nombre de la obra"), "Bacheo avenida Mitre");
+    await u.type(screen.getByLabelText("Contratista"), roles.contratista);
+    await u.type(screen.getByLabelText("Inspector"), roles.inspector);
+    await u.type(screen.getByLabelText("Veedor independiente"), roles.veedor);
+    for (const [i, monto] of ["6000", "9000", "9000", "6000"].entries()) {
+      await u.type(screen.getByLabelText(`Descripción del hito ${i + 1}`), `Tramo ${i + 1}`);
+      await u.type(screen.getByLabelText(`Monto del hito ${i + 1}`), monto);
+    }
+  }
+
+  it("con roles repetidos no deja crear y muestra RolesDuplicados", async () => {
+    const u = await abrirPanel("1", "municipio");
+    await simular(u, "municipio");
+    await completar(u, { contratista: CUENTAS.contratistaAromos, inspector: CUENTAS.inspectorA, veedor: CUENTAS.contratistaAromos });
+    const crear = screen.getByRole("button", { name: "Crear obra y firmar" });
+    expect(crear).toBeDisabled();
+    expect(crear).toHaveAccessibleDescription(/RolesDuplicados/);
+  });
+
+  it("con datos válidos suma el presupuesto y abre crear_obra(", async () => {
+    const u = await abrirPanel("1", "municipio");
+    await simular(u, "municipio");
+    await completar(u, { contratista: CUENTAS.contratistaAromos, inspector: CUENTAS.inspectorA, veedor: PRUEBA });
+    expect(screen.getByText("30.000,0000000 USDCDEMO")).toBeInTheDocument();
+    await u.click(screen.getByRole("button", { name: "Crear obra y firmar" }));
+    expect(modal()).toHaveAccessibleName("¿Crear la obra «Bacheo avenida Mitre»?");
+    expect(modal()).toHaveTextContent("crear_obra(");
+    expect(modal()).toHaveTextContent('"monto":"60000000000"');
+    expect(modal()).toHaveTextContent("periodo_objecion: u64 = 60");
+  });
+});
+
+describe("cuenta sin rol", () => {
+  it("obra 3: no participa, pero puede liberar el pago listo del hito 2: liberar_pago(", async () => {
+    const u = await abrirPanel("3");
+    await simular(u, "sin-rol");
+    expect(screen.getByText("Sin rol", { selector: "strong" })).toBeInTheDocument();
+    expect(screen.getByText("Esta cuenta no participa en esta obra")).toBeInTheDocument();
+    const liberar = screen.getByRole("button", { name: "Liberar pago del hito 2" });
+    expect(liberar).toBeEnabled();
+    await u.click(liberar);
+    expect(modal()).toHaveTextContent("liberar_pago(");
+    expect(modal()).toHaveTextContent("obra: u32 = 3");
+    expect(modal()).toHaveTextContent("hito: u32 = 1");
+    expect(modal()).toHaveTextContent(/No pide la firma de un rol/);
+    expect(modal()).toHaveTextContent(/El dinero va siempre al contratista de la obra/);
+  });
+});
+
+describe("panel: Freighter", () => {
+  const conectar = async (u: Usuario) => u.click(screen.getByRole("button", { name: "Conectar Freighter" }));
 
   it("no instalado → aviso 'No encontramos Freighter'", async () => {
     freighter.isConnected.mockResolvedValue({ isConnected: false });
@@ -244,7 +314,7 @@ describe("panel de firmantes: Freighter", () => {
     expect(aviso).toHaveTextContent("PUBLIC");
   });
 
-  it("dirección del inspector en testnet → rol Inspector y sin aviso de red", async () => {
+  it("dirección del inspector en testnet → rol Inspector y su vista, sin aviso de red", async () => {
     freighter.isConnected.mockResolvedValue({ isConnected: true });
     freighter.getAddress.mockResolvedValue({ address: CUENTAS.inspectorA });
     freighter.getNetwork.mockResolvedValue({ network: "TESTNET", networkPassphrase: PASSPHRASE_TESTNET });
@@ -254,8 +324,7 @@ describe("panel de firmantes: Freighter", () => {
     expect(screen.getByText(/Conectada:/)).toHaveTextContent(CUENTAS.inspectorA);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.queryByText(/\(simulado\)/)).not.toBeInTheDocument();
-    // Y las reglas se aplican a esa dirección: el inspector ya aprobó el hito 2 (Objetado).
-    expect(within(hitoPanel(2)).getByRole("button", { name: "Aprobar hito 2" })).toBeDisabled();
+    expect(screen.getByText("Tu vista como inspector")).toBeInTheDocument();
   });
 
   it("sin permiso previo (address vacío) pide acceso con requestAccess", async () => {
@@ -278,7 +347,7 @@ describe("panel de firmantes: Freighter", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("El usuario rechazó el pedido");
   });
 
-  it("una dirección sin rol en la obra → 'Sin rol' y solo se puede liberar pagos", async () => {
+  it("una dirección sin rol en la obra → 'Sin rol' y solo puede liberar pagos", async () => {
     freighter.isConnected.mockResolvedValue({ isConnected: true });
     freighter.getAddress.mockResolvedValue({ address: "GALW3CGSZ3GBRSWLYYHXBBVICM2H6U5JASVMGQQBEBIRIYGQQTAIFK5H" });
     freighter.getNetwork.mockResolvedValue({ network: "TESTNET", networkPassphrase: PASSPHRASE_TESTNET });
@@ -286,7 +355,7 @@ describe("panel de firmantes: Freighter", () => {
     await conectar(u);
     expect(await screen.findByText("Sin rol", { selector: "strong" })).toBeInTheDocument();
     expect(screen.getByText(/Sin rol solo podés liberar pagos/)).toBeInTheDocument();
-    expect(within(hitoPanel(2)).getByRole("button", { name: "Liberar pago del hito 2" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Liberar pago del hito 2" })).toBeEnabled();
   });
 
   it("Desconectar vuelve al estado inicial", async () => {
@@ -298,7 +367,7 @@ describe("panel de firmantes: Freighter", () => {
     await screen.findByText(/Conectada:/);
     await u.click(screen.getByRole("button", { name: "Desconectar" }));
     expect(screen.getByRole("button", { name: "Conectar Freighter" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Aprobar hito/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Tu próxima acción" })).not.toBeInTheDocument();
   });
 
   it("el simulador de rol tiene prioridad sobre la wallet conectada", async () => {

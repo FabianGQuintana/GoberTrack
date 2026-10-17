@@ -10,6 +10,7 @@ const PASSPHRASE_TESTNET = "Test SDF Network ; September 2015";
 const PASSPHRASE_PUBLICA = "Public Global Stellar Network ; September 2015";
 const CONTRATO = StrKey.encodeContract(new Uint8Array(32).fill(8));
 const HASH = "cd".repeat(32);
+const HASH_DE_PRUEBA = "0".repeat(64);
 
 const m = vi.hoisted(() => ({
   modo: "api" as "api" | "mock",
@@ -18,6 +19,7 @@ const m = vi.hoisted(() => ({
   enviar: vi.fn(),
   horaDelUltimoLedger: vi.fn(),
   listarEventos: vi.fn(),
+  refresh: vi.fn(),
   freighter: {
     isConnected: vi.fn(),
     getAddress: vi.fn(),
@@ -31,7 +33,7 @@ vi.mock("@stellar/freighter-api", () => m.freighter);
 vi.mock("next/server", () => ({ connection: async () => undefined }));
 vi.mock("next/navigation", async (importarOriginal) => ({
   ...(await importarOriginal<typeof import("next/navigation")>()),
-  useRouter: () => ({ refresh: vi.fn() }),
+  useRouter: () => ({ refresh: m.refresh, push: vi.fn() }),
 }));
 // La página lee los datos con el cliente mock (cargarObra usa el suyo); el panel ve el modo configurable.
 vi.mock("@/lib/api/cliente", async (importarOriginal) => {
@@ -69,7 +71,7 @@ vi.mock("@/lib/stellar/transacciones", async (importarOriginal) => ({
 beforeEach(() => {
   m.modo = "api";
   m.lectura.ok = true;
-  for (const f of [m.simular, m.enviar, m.horaDelUltimoLedger, m.listarEventos, ...Object.values(m.freighter)]) f.mockReset();
+  for (const f of [m.simular, m.enviar, m.horaDelUltimoLedger, m.listarEventos, m.refresh, ...Object.values(m.freighter)]) f.mockReset();
   m.listarEventos.mockResolvedValue([]);
   m.horaDelUltimoLedger.mockRejectedValue(new Error("sin ledger")); // reloj del navegador
   m.simular.mockResolvedValue({});
@@ -79,9 +81,9 @@ beforeEach(() => {
 
 type Usuario = ReturnType<typeof userEvent.setup>;
 
-async function abrirPanel(id: string) {
+async function abrirPanel(id: string, vista?: string) {
   const usuario = userEvent.setup();
-  render(await PaginaPanel({ params: Promise.resolve({ id }) }));
+  render(await PaginaPanel({ params: Promise.resolve({ id }), searchParams: Promise.resolve(vista ? { vista } : {}) }));
   return usuario;
 }
 
@@ -97,20 +99,18 @@ async function simularRol(u: Usuario, rol: string) {
   await screen.findByText(/Rol en esta obra:/);
 }
 
-function hitoPanel(numero: number): HTMLElement {
-  return screen.getByText(new RegExp(`^Hito ${numero}:`), { selector: "summary strong" }).closest("details") as HTMLElement;
-}
-
-const botonFirmar = () => screen.getByRole("button", { name: "Firmar con Freighter y enviar" });
-const vista = () => screen.getByRole("region", { name: "Lo que se enviaría al contrato" });
+const modal = () => screen.getByRole("dialog");
+const dialogoAlerta = () => screen.getByRole("alertdialog");
+const botonFirmar = (nombre = "Aprobar y firmar") => screen.getByRole("button", { name: nombre });
+const comprobar = () => screen.getByRole("button", { name: "Comprobar con el contrato" });
 
 /** Obra 2 (Evidencia, dentro del período, el inspector ya aprobó): el veedor puede aprobar el hito 1. */
 async function abrirAprobar(u: Usuario) {
-  await u.click(within(hitoPanel(1)).getByRole("button", { name: "Aprobar hito 1" }));
+  await u.click(screen.getByRole("button", { name: "Aprobar hito 1" }));
 }
 
-describe("panel que firma: Freighter conectado en testnet", () => {
-  it("a) Aprobar abre la vista, firmar queda habilitado, llama a `enviar` con `firmar` y muestra la confirmación", async () => {
+describe("firma con Freighter conectado en testnet", () => {
+  it("a) Aprobar abre la confirmación, firma con Freighter vía `enviar` y muestra 'Confirmado' recién con la red", async () => {
     m.enviar.mockImplementation(async (_red, p) => {
       p.alAvanzar("simulando");
       p.alAvanzar("firmando");
@@ -123,10 +123,10 @@ describe("panel que firma: Freighter conectado en testnet", () => {
     expect(screen.getByText(/Las acciones se firman con Freighter y se envían a testnet/)).toBeInTheDocument();
 
     await abrirAprobar(u);
-    expect(vista()).toHaveTextContent("aprobar(");
-    expect(vista()).toHaveTextContent(`firmante: Address = ${CUENTAS.veedorAgua}`);
+    expect(modal()).toHaveAccessibleName("¿Aprobar el hito 1?");
+    expect(modal()).toHaveTextContent(`firmante: Address = ${CUENTAS.veedorAgua}`);
     expect(botonFirmar()).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Simular en la red" })).toBeEnabled();
+    expect(comprobar()).toBeEnabled();
 
     await u.click(botonFirmar());
 
@@ -142,43 +142,50 @@ describe("panel que firma: Freighter conectado en testnet", () => {
       address: CUENTAS.veedorAgua,
     });
 
-    expect(await screen.findByText(/Confirmada en el ledger 4321/)).toBeInTheDocument();
-    expect(screen.getByText(HASH)).toBeInTheDocument();
-    expect(botonFirmar()).toBeDisabled(); // no se reenvía lo ya confirmado
+    expect(await screen.findByText("Tu aprobación ya figura en la red.")).toBeInTheDocument();
+    expect(modal()).toHaveAccessibleName("Confirmado");
+    expect(screen.getByText(/Confirmado en el ledger 4321/)).toBeInTheDocument();
+    expect(within(modal()).getByText(HASH)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Aprobar y firmar" })).not.toBeInTheDocument(); // no se reenvía
+    expect(m.refresh).toHaveBeenCalled(); // la página vuelve a pedir los datos
   });
 
-  it("R6: volver a abrir la acción después de una confirmación muestra una vista nueva", async () => {
+  it("R6: volver a abrir la acción después de una confirmación muestra una confirmación nueva", async () => {
     m.enviar.mockResolvedValue({ hash: HASH, ledger: 4321, retorno: undefined });
     const u = await abrirPanel("2");
     await conectarComo(u, CUENTAS.veedorAgua);
     await abrirAprobar(u);
     await u.click(botonFirmar());
-    expect(await screen.findByText(/Confirmada en el ledger 4321/)).toBeInTheDocument();
+    await screen.findByText("Tu aprobación ya figura en la red.");
+    await u.click(screen.getByRole("button", { name: "Listo" }));
 
     await abrirAprobar(u);
-    expect(vista()).not.toHaveTextContent("Confirmada en el ledger");
+    expect(modal()).not.toHaveTextContent("ya figura en la red");
     expect(botonFirmar()).toBeEnabled();
   });
 
-  it("R6: cambiar de decisión (Aceptar → Rechazar) no conserva el resultado de la simulación anterior", async () => {
+  it("R6: cambiar de decisión (Aceptar → Rechazar) no conserva el resultado de la comprobación anterior", async () => {
     m.simular.mockResolvedValue({ tx: {}, sim: {}, retorno: undefined });
     const u = await abrirPanel("1");
     await simularRol(u, "arbitro");
-    const hito = hitoPanel(2);
-    await u.click(within(hito).getByRole("button", { name: "Aceptar objeción del hito 2" }));
-    await u.click(screen.getByRole("button", { name: "Simular en la red" }));
-    expect(await screen.findByText(/La simulación pasó/)).toBeInTheDocument();
+    await u.click(screen.getByRole("radio", { name: /Aceptar la objeción/ }));
+    await u.click(screen.getByRole("button", { name: "Confirmar decisión" }));
+    await u.click(comprobar());
+    expect(await screen.findByText(/El contrato aceptaría esta acción ahora/)).toBeInTheDocument();
+    await u.click(within(modal()).getByRole("button", { name: "Cerrar" }));
 
-    await u.click(within(hito).getByRole("button", { name: "Rechazar objeción del hito 2" }));
-    expect(vista()).toHaveTextContent("decision: Decision = Rechazar");
-    expect(vista()).not.toHaveTextContent("La simulación pasó");
+    await u.click(screen.getByRole("radio", { name: /Rechazar la objeción/ }));
+    await u.click(screen.getByRole("button", { name: "Confirmar decisión" }));
+    expect(modal()).toHaveTextContent("decision: Decision = Rechazar");
+    expect(modal()).not.toHaveTextContent("El contrato aceptaría");
   });
 
-  it("muestra la etapa en curso mientras espera la firma y deshabilita los botones", async () => {
+  it("muestra los pasos mientras espera la firma y no deja cerrar el modal", async () => {
     let seguir: (r: unknown) => void = () => undefined;
     m.enviar.mockImplementation(
       (_red, p) =>
         new Promise((resolver) => {
+          p.alAvanzar("simulando");
           p.alAvanzar("firmando");
           seguir = resolver;
         }),
@@ -187,28 +194,30 @@ describe("panel que firma: Freighter conectado en testnet", () => {
     await conectarComo(u, CUENTAS.veedorAgua);
     await abrirAprobar(u);
     await u.click(botonFirmar());
-    expect(await screen.findByText("Esperando tu firma en Freighter…")).toBeInTheDocument();
-    expect(botonFirmar()).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Simular en la red" })).toBeDisabled();
+    expect(await screen.findByRole("dialog", { name: "Firmá en Freighter" })).toBeInTheDocument();
+    expect(within(modal()).getByText("Comprobado con el contrato")).toBeInTheDocument();
+    expect(within(modal()).getByText(/\(en curso\)/)).toHaveTextContent("(en curso)");
+    expect(within(modal()).queryByRole("button", { name: "Cerrar ventana" })).not.toBeInTheDocument();
+    expect(within(modal()).queryByRole("button", { name: "Cancelar" })).not.toBeInTheDocument();
+    await u.keyboard("{Escape}");
+    expect(modal()).toBeInTheDocument();
     seguir({ hash: HASH, ledger: 1, retorno: undefined });
-    expect(await screen.findByText(/Confirmada en el ledger 1/)).toBeInTheDocument();
+    expect(await screen.findByText(/Confirmado en el ledger 1/)).toBeInTheDocument();
   });
 
   it("b) rechazo del contrato en la simulación: se explica el error y nadie firmó", async () => {
-    m.enviar.mockRejectedValue(
-      new ErrorTransaccion({ tipo: "contrato", codigo: "HitoAnteriorPendiente", numero: 9 }, "simulando"),
-    );
+    m.enviar.mockRejectedValue(new ErrorTransaccion({ tipo: "contrato", codigo: "HitoAnteriorPendiente", numero: 9 }, "simulando"));
     const u = await abrirPanel("2");
     await conectarComo(u, CUENTAS.veedorAgua);
     await abrirAprobar(u);
     await u.click(botonFirmar());
 
-    const alerta = await screen.findByRole("alert");
-    expect(alerta).toHaveTextContent("El contrato rechaza la operación (en la simulación: no se pidió ninguna firma).");
-    expect(alerta).toHaveTextContent("HitoAnteriorPendiente");
-    expect(alerta).toHaveTextContent("Error del contrato #9");
+    expect(await screen.findByRole("alertdialog", { name: "No se puede aprobar el hito 1" })).toBeInTheDocument();
+    const alerta = within(dialogoAlerta()).getByRole("alert");
+    expect(alerta).toHaveTextContent("El hito anterior todavía no está aprobado ni pagado.");
+    expect(alerta).toHaveTextContent("(HitoAnteriorPendiente, error del contrato #9)");
+    expect(alerta).toHaveTextContent("no te pedimos la firma y no se movió ningún fondo");
     expect(m.freighter.signTransaction).not.toHaveBeenCalled();
-    expect(botonFirmar()).toBeEnabled(); // se puede reintentar
   });
 
   it("un rechazo del contrato después de firmar no dice que no se pidió firma", async () => {
@@ -218,17 +227,33 @@ describe("panel que firma: Freighter conectado en testnet", () => {
     await abrirAprobar(u);
     await u.click(botonFirmar());
     const alerta = await screen.findByRole("alert");
-    expect(alerta).toHaveTextContent("El contrato rechaza la operación.");
-    expect(alerta).not.toHaveTextContent("no se pidió ninguna firma");
+    expect(alerta).toHaveTextContent("La red rechazó la transacción ya firmada");
+    expect(alerta).not.toHaveTextContent("no te pedimos");
+    expect(dialogoAlerta()).toHaveAccessibleName("No se pudo completar");
   });
 
-  it("otros rechazos (firma cancelada, envío) muestran el texto de describirRechazo", async () => {
+  it("firma cancelada en Freighter: 'No se pudo completar: no se firmó' y no se registró nada", async () => {
     m.enviar.mockRejectedValue(new ErrorTransaccion({ tipo: "firma", detalle: "User declined access" }, "firmando"));
     const u = await abrirPanel("2");
     await conectarComo(u, CUENTAS.veedorAgua);
     await abrirAprobar(u);
     await u.click(botonFirmar());
-    expect(await screen.findByRole("alert")).toHaveTextContent("No se firmó: User declined access");
+    const alerta = await screen.findByRole("alert");
+    expect(alerta).toHaveTextContent("No se pudo completar: no se firmó");
+    expect(alerta).toHaveTextContent("No se firmó: User declined access");
+    expect(alerta).toHaveTextContent("No se registró nada.");
+  });
+
+  it("sin confirmación todavía: no dice 'Confirmado' y avisa que revise antes de repetir", async () => {
+    m.enviar.mockRejectedValue(new ErrorTransaccion({ tipo: "sin-confirmar", detalle: "todavía no" }, "confirmando", HASH));
+    const u = await abrirPanel("2");
+    await conectarComo(u, CUENTAS.veedorAgua);
+    await abrirAprobar(u);
+    await u.click(botonFirmar());
+    const alerta = await screen.findByRole("alert");
+    expect(alerta).toHaveTextContent("Sin confirmación todavía");
+    expect(alerta).toHaveTextContent("revisá la línea de tiempo en unos segundos antes de repetir");
+    expect(screen.queryByText("Tu aprobación ya figura en la red.")).not.toBeInTheDocument();
   });
 
   it("un error que no es de transacción se muestra con su mensaje", async () => {
@@ -244,56 +269,54 @@ describe("panel que firma: Freighter conectado en testnet", () => {
     m.enviar.mockRejectedValue(new ErrorTransaccion({ tipo: "autorizacion", direcciones: [CUENTAS.municipio] }, "simulando"));
     const u = await abrirPanel("1"); // el árbitro de la obra 1 es la dirección del municipio
     await conectarComo(u, CUENTAS.municipio);
-    await u.click(within(hitoPanel(2)).getByRole("button", { name: "Aceptar objeción del hito 2" }));
-    await u.click(botonFirmar());
+    await u.click(screen.getByRole("radio", { name: /Aceptar la objeción/ }));
+    await u.click(screen.getByRole("button", { name: "Confirmar decisión" }));
+    await u.click(botonFirmar("Confirmar y firmar"));
     const alerta = await screen.findByRole("alert");
-    expect(alerta).toHaveTextContent(/Error de autorización: esta operación la tiene que firmar el árbitro/);
+    expect(alerta).toHaveTextContent("Esta acción la tiene que firmar el árbitro de la obra.");
     expect(alerta).toHaveTextContent(CUENTAS.municipio);
-    expect(alerta).toHaveTextContent("No se pidió ninguna firma.");
+    expect(alerta).toHaveTextContent("No te pedimos ninguna firma.");
   });
 });
 
-describe("panel que firma: red equivocada o rol simulado (F3)", () => {
-  it("c) Freighter en PUBLIC: firmar deshabilitado con el motivo; simular sigue disponible", async () => {
+describe("firma: red equivocada o rol simulado (F3)", () => {
+  it("c) Freighter en PUBLIC: firmar deshabilitado con el motivo; comprobar con el contrato sigue disponible", async () => {
     const u = await abrirPanel("2");
     await conectarComo(u, CUENTAS.veedorAgua, { network: "PUBLIC", networkPassphrase: PASSPHRASE_PUBLICA });
+    expect(screen.getByText(/Solo vista previa y comprobación con el contrato: Freighter está en la red PUBLIC/)).toBeInTheDocument();
     await abrirAprobar(u);
     expect(botonFirmar()).toBeDisabled();
-    expect(screen.getByText(/No se puede firmar: Freighter está en la red PUBLIC, no en testnet/)).toBeInTheDocument();
-    expect(screen.getByText(/Solo vista previa y simulación en la red: Freighter está en la red PUBLIC/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Simular en la red" })).toBeEnabled();
+    expect(within(modal()).getByText(/No se puede firmar: Freighter está en la red PUBLIC, no en testnet/)).toBeInTheDocument();
 
-    await u.click(screen.getByRole("button", { name: "Simular en la red" }));
-    expect(await screen.findByText(/La simulación pasó/)).toBeInTheDocument();
+    await u.click(comprobar());
+    expect(await screen.findByText(/El contrato aceptaría esta acción ahora/)).toBeInTheDocument();
     expect(m.simular).toHaveBeenCalledTimes(1);
     expect(m.enviar).not.toHaveBeenCalled();
     expect(m.freighter.signTransaction).not.toHaveBeenCalled();
   });
 
-  it("c) rol simulado: firmar deshabilitado, 'Simular en la red' habilitado y usa la dirección del rol", async () => {
+  it("c) rol simulado: firmar deshabilitado y la comprobación usa la dirección del rol", async () => {
     const u = await abrirPanel("2");
     await simularRol(u, "veedor");
     await abrirAprobar(u);
     expect(botonFirmar()).toBeDisabled();
-    expect(screen.getByText(/No se puede firmar: es un rol simulado/)).toBeInTheDocument();
-    const simulacion = screen.getByRole("button", { name: "Simular en la red" });
-    expect(simulacion).toBeEnabled();
+    expect(within(modal()).getByText(/No se puede firmar: es un rol simulado/)).toBeInTheDocument();
 
-    await u.click(simulacion);
-    expect(await screen.findByText("La simulación pasó: el contrato aceptaría esta operación ahora.")).toBeInTheDocument();
+    await u.click(comprobar());
+    expect(await screen.findByText(/El contrato aceptaría esta acción ahora/)).toBeInTheDocument();
     expect(m.simular.mock.calls[0][1]).toMatchObject({ funcion: "aprobar", origen: CUENTAS.veedorAgua, contratoId: CONTRATO });
     expect(m.enviar).not.toHaveBeenCalled();
   });
 
-  it("simular con rechazo del contrato: muestra el error", async () => {
+  it("comprobar con rechazo del contrato: muestra el error y que no se pidió firma", async () => {
     m.simular.mockRejectedValue(new ErrorTransaccion({ tipo: "contrato", codigo: "YaDecidio", numero: 10 }, "simulando"));
     const u = await abrirPanel("2");
     await simularRol(u, "veedor");
     await abrirAprobar(u);
-    await u.click(screen.getByRole("button", { name: "Simular en la red" }));
+    await u.click(comprobar());
     const alerta = await screen.findByRole("alert");
     expect(alerta).toHaveTextContent("YaDecidio");
-    expect(alerta).toHaveTextContent("no se pidió ninguna firma");
+    expect(alerta).toHaveTextContent("no te pedimos la firma");
   });
 
   it("sin Freighter conectado ni rol simulado no hay acciones", async () => {
@@ -302,65 +325,60 @@ describe("panel que firma: red equivocada o rol simulado (F3)", () => {
   });
 });
 
-describe("panel que firma: 'Probar igual con el contrato' (d)", () => {
-  const probar = (numero: number, titulo: string) =>
-    within(hitoPanel(numero)).getByRole("button", { name: new RegExp(`Probar igual con el contrato: ${titulo}`) });
+describe("'Probar igual con el contrato' (d)", () => {
+  it("en una acción deshabilitada comprueba al abrir y muestra el resultado, sin botón para firmar", async () => {
+    const u = await abrirPanel("1");
+    await simularRol(u, "contratista"); // declarar el hito 3 está deshabilitado (HitoAnteriorPendiente)
+    expect(screen.getByRole("button", { name: "Declarar hito 3" })).toBeDisabled();
 
-  it("en una acción deshabilitada simula al abrir y muestra 'La simulación pasó'", async () => {
-    const u = await abrirPanel("2");
-    await simularRol(u, "inspector"); // el inspector ya aprobó: 'Aprobar hito 1' está deshabilitado (YaDecidio)
-    expect(within(hitoPanel(1)).getByRole("button", { name: "Aprobar hito 1" })).toBeDisabled();
+    await u.click(screen.getByRole("button", { name: "Probar igual con el contrato: Declarar hito 3" }));
 
-    await u.click(probar(1, "Aprobar el hito 1"));
-
-    expect(await screen.findByText("La simulación pasó: el contrato aceptaría esta operación ahora.")).toBeInTheDocument();
+    expect(await screen.findByText(/El contrato aceptaría esta acción ahora/)).toBeInTheDocument();
     expect(m.simular).toHaveBeenCalledTimes(1);
-    expect(m.simular.mock.calls[0][1]).toMatchObject({ funcion: "aprobar", origen: CUENTAS.inspectorB });
-    expect(screen.getByRole("region", { name: "Lo que se enviaría al contrato" })).toHaveTextContent("Prueba contra el contrato");
-    // Solo simula: no hay botón para firmar ni se envía nada.
-    expect(screen.queryByRole("button", { name: "Firmar con Freighter y enviar" })).not.toBeInTheDocument();
+    expect(m.simular.mock.calls[0][1]).toMatchObject({ funcion: "declarar_hito", origen: CUENTAS.contratistaAromos });
+    expect(modal()).toHaveTextContent(HASH_DE_PRUEBA);
+    expect(screen.queryByRole("button", { name: /y firmar/ })).not.toBeInTheDocument();
     expect(m.enviar).not.toHaveBeenCalled();
   });
 
-  it("si el contrato rechaza, muestra el rechazo con su código", async () => {
-    m.simular.mockRejectedValue(new ErrorTransaccion({ tipo: "contrato", codigo: "YaDecidio", numero: 10 }, "simulando"));
-    const u = await abrirPanel("2");
-    await simularRol(u, "inspector");
-    await u.click(probar(1, "Aprobar el hito 1"));
-    const alerta = await screen.findByRole("alert");
-    expect(alerta).toHaveTextContent("El contrato rechaza la operación (en la simulación: no se pidió ninguna firma).");
-    expect(alerta).toHaveTextContent("YaDecidio");
+  it("si el contrato rechaza, lo dice con su código y aclara que no se firmó ni envió nada", async () => {
+    m.simular.mockRejectedValue(new ErrorTransaccion({ tipo: "contrato", codigo: "HitoAnteriorPendiente", numero: 9 }, "simulando"));
+    const u = await abrirPanel("1");
+    await simularRol(u, "contratista");
+    await u.click(screen.getByRole("button", { name: "Probar igual con el contrato: Declarar hito 3" }));
+    expect(await screen.findByRole("alertdialog", { name: "El contrato la rechazó" })).toBeInTheDocument();
+    expect(dialogoAlerta()).toHaveTextContent("(HitoAnteriorPendiente, error del contrato #9)");
+    expect(dialogoAlerta()).toHaveTextContent("la rechazó la regla del contrato, no solo esta pantalla. No se firmó ni se envió nada.");
   });
 
-  it("e) en 'resolver objeción' sin ser árbitro, un motivo de autorización nombra al árbitro de la obra", async () => {
-    m.simular.mockRejectedValue(new ErrorTransaccion({ tipo: "autorizacion", direcciones: [] }, "simulando"));
+  it("también en 'Liberar pago' con una objeción abierta", async () => {
+    m.simular.mockRejectedValue(new ErrorTransaccion({ tipo: "contrato", codigo: "ObjecionAbierta", numero: 11 }, "simulando"));
     const u = await abrirPanel("1");
-    await simularRol(u, "inspector");
-    await u.click(probar(2, "Resolver la objeción del hito 2"));
-    const alerta = await screen.findByRole("alert");
-    expect(alerta).toHaveTextContent(/Error de autorización: esta operación la tiene que firmar el árbitro/);
-    expect(alerta).toHaveTextContent(CUENTAS.municipio); // el árbitro de la obra 1
-    expect(m.simular.mock.calls[0][1]).toMatchObject({ funcion: "resolver_objecion" });
+    await simularRol(u, "contratista");
+    await u.click(screen.getByRole("button", { name: "Probar igual con el contrato: Liberar pago del hito 2" }));
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent("ObjecionAbierta");
+    expect(m.simular.mock.calls[0][1]).toMatchObject({ funcion: "liberar_pago" });
   });
 
-  it("también en 'Fondear' con un monto que el panel rechaza", async () => {
-    const u = await abrirPanel("1");
+  it("también en 'Depositar' con un monto que el panel rechaza", async () => {
+    const u = await abrirPanel("1", "municipio");
     await simularRol(u, "municipio");
+    await u.clear(screen.getByLabelText("Monto a depositar"));
     await u.type(screen.getByLabelText("Monto a depositar"), "15000,5"); // excede el presupuesto
-    expect(screen.getByRole("button", { name: "Fondear la obra" })).toBeDisabled();
-    await u.click(screen.getByRole("button", { name: /Probar igual con el contrato: fondear la obra/ }));
-    expect(await screen.findByText(/La simulación pasó/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Depositar y firmar" })).toBeDisabled();
+    await u.click(screen.getByRole("button", { name: "Probar igual con el contrato: Depositar y firmar" }));
+    expect(await screen.findByText(/El contrato aceptaría esta acción ahora/)).toBeInTheDocument();
     expect(m.simular.mock.calls[0][1]).toMatchObject({ funcion: "fondear", origen: CUENTAS.municipio });
   });
 
   it("el botón no existe cuando la acción está habilitada", async () => {
     const u = await abrirPanel("2");
     await simularRol(u, "veedor");
-    expect(within(hitoPanel(1)).queryByRole("button", { name: /Probar igual con el contrato: Aprobar el hito 1/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Probar igual con el contrato: Aprobar hito 1/ })).not.toBeInTheDocument();
   });
 });
 
-describe("panel que firma: reloj del ledger", () => {
+describe("reloj del ledger", () => {
   it("con el ledger disponible, el panel dice qué hora usa", async () => {
     m.horaDelUltimoLedger.mockResolvedValue({ ms: Date.now(), secuencia: 5555 });
     const u = await abrirPanel("2");
@@ -375,17 +393,17 @@ describe("panel que firma: reloj del ledger", () => {
   });
 });
 
-describe("panel en modo mock o sin configuración de red (f)", () => {
+describe("modo de demostración o sin configuración de red (f)", () => {
   it("modo mock: solo vista previa, sin botones de red", async () => {
     m.modo = "mock";
     const u = await abrirPanel("2");
     await simularRol(u, "veedor");
     await abrirAprobar(u);
-    expect(vista()).toHaveTextContent("Vista previa: no se firmó ni se envió nada");
-    expect(screen.queryByRole("button", { name: "Simular en la red" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Firmar con Freighter y enviar" })).not.toBeInTheDocument();
+    expect(modal()).toHaveTextContent("Vista previa: no se firmó ni se envió nada");
+    expect(screen.queryByRole("button", { name: "Comprobar con el contrato" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Aprobar y firmar" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Probar igual con el contrato/ })).not.toBeInTheDocument();
-    expect(screen.getByText(/Solo vista previa: modo mock/)).toBeInTheDocument();
+    expect(screen.getByText(/Solo vista previa: modo de demostración/)).toBeInTheDocument();
     expect(m.horaDelUltimoLedger).not.toHaveBeenCalled();
     expect(m.simular).not.toHaveBeenCalled();
   });
@@ -394,10 +412,10 @@ describe("panel en modo mock o sin configuración de red (f)", () => {
     m.lectura.ok = false;
     const u = await abrirPanel("2");
     await simularRol(u, "veedor");
-    await abrirAprobar(u);
-    expect(vista()).toHaveTextContent("Vista previa: no se firmó ni se envió nada");
     expect(screen.getByText(/falta configurar la red \(NEXT_PUBLIC_CONTRATO_ID falta/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Simular en la red" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Firmar con Freighter y enviar" })).not.toBeInTheDocument();
+    await abrirAprobar(u);
+    expect(modal()).toHaveTextContent("Vista previa: no se firmó ni se envió nada");
+    expect(screen.queryByRole("button", { name: "Comprobar con el contrato" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Aprobar y firmar" })).not.toBeInTheDocument();
   });
 });

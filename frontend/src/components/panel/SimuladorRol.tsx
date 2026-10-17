@@ -26,15 +26,16 @@ export function SimuladorRol({
 }) {
   const id = useId();
   return (
-    <div className="aviso aviso--dev" role="group" aria-labelledby={`${id}-titulo`}>
-      <p id={`${id}-titulo`} style={{ marginBottom: "0.5rem" }}>
-        <strong>SOLO DESARROLLO · Simular rol</strong> — prueba el panel sin wallet usando la dirección
-        del rol elegido. No existe en producción.
+    <div className="dev pila pila--chica" role="group" aria-labelledby={`${id}-titulo`}>
+      <p id={`${id}-titulo`} className="chico">
+        <strong>SOLO DESARROLLO · Simular rol</strong> — probá el panel sin wallet con la dirección del rol elegido. No existe
+        en producción y no puede firmar.
       </p>
-      <div className="campo" style={{ maxWidth: "22rem" }}>
+      <div className="campo" style={{ maxWidth: 360 }}>
         <label htmlFor={id}>Rol simulado</label>
         <select
           id={id}
+          className="entrada"
           value={valor ?? ""}
           onChange={(e) => alCambiar(e.target.value === "" ? null : (e.target.value as RolSimulado))}
         >
