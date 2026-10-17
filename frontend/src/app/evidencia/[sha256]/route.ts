@@ -23,3 +23,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ sha
     },
   });
 }
+
+/** HEAD: lo usa el tablero para saber si el archivo está y cuál es su nombre, sin bajarlo. */
+export async function HEAD(request: Request, contexto: { params: Promise<{ sha256: string }> }) {
+  const respuesta = await GET(request, contexto);
+  return new Response(null, { status: respuesta.status, headers: respuesta.headers });
+}
